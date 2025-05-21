@@ -287,7 +287,7 @@ class BudgetsWidget(QWidget):
         total = budget['montant_total']
         dispo = budget['montant_disponible']
         montant_total_recettes = budget['montant_total_recettes']
-        montant_total_depenses = self.budget_data['montant_total_depenses_validees']
+        montant_total_depenses = budget['montant_total_depenses_validees']
         # Calcul du montant global (initial + recettes)
         montant_global = total + montant_total_recettes
 

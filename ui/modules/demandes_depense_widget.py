@@ -2,12 +2,13 @@ from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushBut
                              QTableWidgetItem, QHeaderView, QMessageBox, QWidget, QLineEdit,
                              QComboBox, QGraphicsDropShadowEffect)
 from PyQt5.QtCore import Qt, QPropertyAnimation, QEasingCurve
-from PyQt5.QtGui import QColor, QFont
+from PyQt5.QtGui import QColor, QFont, QBrush
 from services.auth_service import AuthService
 from services.demande_depense_service import get_demandes_depense, create_demande_depense, valider_demande_depense, \
     delete_demande_depense
 from ui.modules.demande_depense_form_dialog import DemandeDepenseFormDialog
 import datetime
+import math
 
 
 class DemandesDepenseWidget(QDialog):
@@ -15,12 +16,23 @@ class DemandesDepenseWidget(QDialog):
         super().__init__(parent)
         self.user_role = AuthService.get_user_role()
         self.setWindowTitle("Demandes de Dépense")
-        self.resize(800, 500)
+        self.resize(1000, 650)  # Fenêtre agrandie
         self.demandes = []
         self.filtered_demandes = []
+        self.current_page = 1
+        self.items_per_page = 10
         self.setup_ui()
         self.load_demandes()
         self.setup_animations()
+
+    def setup_animations(self):
+        # Animation d'apparition du tableau
+        self.anim = QPropertyAnimation(self.table, b"windowOpacity")
+        self.anim.setDuration(500)
+        self.anim.setStartValue(0)
+        self.anim.setEndValue(1)
+        self.anim.setEasingCurve(QEasingCurve.OutCubic)
+        self.anim.start()
 
     def setup_ui(self):
         self.setStyleSheet("""
@@ -127,6 +139,7 @@ class DemandesDepenseWidget(QDialog):
                 border: 1px solid #bdc3c7;
                 border-radius: 3px;
                 background-color: white;
+                min-width: 200px;
             }
         """)
         self.search_input.textChanged.connect(self.apply_filters)
@@ -134,6 +147,23 @@ class DemandesDepenseWidget(QDialog):
         filter_bar.addWidget(self.search_input)
 
         filter_bar.addStretch()
+
+        # Sélecteur d'éléments par page
+        self.items_per_page_combo = QComboBox()
+        self.items_per_page_combo.addItems(["5", "10", "20", "50", "100"])
+        self.items_per_page_combo.setCurrentText("10")
+        self.items_per_page_combo.setStyleSheet("""
+            QComboBox {
+                padding: 5px;
+                border: 1px solid #bdc3c7;
+                border-radius: 3px;
+                background-color: white;
+                min-width: 80px;
+            }
+        """)
+        self.items_per_page_combo.currentTextChanged.connect(self.change_items_per_page)
+        filter_bar.addWidget(QLabel("Items par page:"))
+        filter_bar.addWidget(self.items_per_page_combo)
 
         # Affichage du nombre de résultats
         self.results_label = QLabel("0 demandes")
@@ -187,6 +217,72 @@ class DemandesDepenseWidget(QDialog):
 
         layout.addWidget(self.table)
 
+        # Pagination
+        self.pagination_widget = QWidget()
+        pagination_layout = QHBoxLayout(self.pagination_widget)
+        pagination_layout.setContentsMargins(0, 10, 0, 10)
+        pagination_layout.setSpacing(5)
+
+        self.prev_btn = QPushButton("◀")
+        self.prev_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #bdc3c7;
+                color: #2c3e50;
+                border: none;
+                padding: 5px 10px;
+                border-radius: 3px;
+                min-width: 30px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #95a5a6;
+            }
+            QPushButton:disabled {
+                background-color: #ecf0f1;
+                color: #95a5a6;
+            }
+        """)
+        self.prev_btn.setCursor(Qt.PointingHandCursor)
+        self.prev_btn.clicked.connect(self.go_to_previous_page)
+        self.prev_btn.setToolTip("Page précédente")
+        pagination_layout.addWidget(self.prev_btn)
+
+        self.page_buttons_layout = QHBoxLayout()
+        self.page_buttons_layout.setSpacing(5)
+        pagination_layout.addLayout(self.page_buttons_layout)
+
+        self.next_btn = QPushButton("▶")
+        self.next_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #bdc3c7;
+                color: #2c3e50;
+                border: none;
+                padding: 5px 10px;
+                border-radius: 3px;
+                min-width: 30px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #95a5a6;
+            }
+            QPushButton:disabled {
+                background-color: #ecf0f1;
+                color: #95a5a6;
+            }
+        """)
+        self.next_btn.setCursor(Qt.PointingHandCursor)
+        self.next_btn.clicked.connect(self.go_to_next_page)
+        self.next_btn.setToolTip("Page suivante")
+        pagination_layout.addWidget(self.next_btn)
+
+        pagination_layout.addStretch()
+
+        self.page_info_label = QLabel()
+        self.page_info_label.setStyleSheet("color: #7f8c8d;")
+        pagination_layout.addWidget(self.page_info_label)
+
+        layout.addWidget(self.pagination_widget)
+
         # Ajout d'une barre de statut
         status_bar = QHBoxLayout()
 
@@ -216,15 +312,6 @@ class DemandesDepenseWidget(QDialog):
         status_bar.addWidget(refresh_btn)
 
         layout.addLayout(status_bar)
-
-    def setup_animations(self):
-        # Animation d'apparition du tableau
-        self.anim = QPropertyAnimation(self.table, b"windowOpacity")
-        self.anim.setDuration(500)
-        self.anim.setStartValue(0)
-        self.anim.setEndValue(1)
-        self.anim.setEasingCurve(QEasingCurve.OutCubic)
-        self.anim.start()
 
     def load_demandes(self):
         result = get_demandes_depense()
@@ -260,16 +347,25 @@ class DemandesDepenseWidget(QDialog):
 
             self.filtered_demandes.append(demande)
 
-        # Mettre à jour le tableau
+        self.current_page = 1  # Reset to first page when filters change
         self.update_table()
-
-        # Mettre à jour le compteur de résultats
+        self.update_pagination()
         self.results_label.setText(f"{len(self.filtered_demandes)} demande(s) trouvée(s)")
 
-    def update_table(self):
-        self.table.setRowCount(len(self.filtered_demandes))
+    def change_items_per_page(self, text):
+        self.items_per_page = int(text)
+        self.current_page = 1  # Reset to first page when items per page changes
+        self.update_table()
+        self.update_pagination()
 
-        for i, demande in enumerate(self.filtered_demandes):
+    def update_table(self):
+        start_index = (self.current_page - 1) * self.items_per_page
+        end_index = start_index + self.items_per_page
+        paginated_demandes = self.filtered_demandes[start_index:end_index]
+
+        self.table.setRowCount(len(paginated_demandes))
+
+        for i, demande in enumerate(paginated_demandes):
             # Motif
             motif_item = QTableWidgetItem(demande["motif"])
             self.table.setItem(i, 0, motif_item)
@@ -299,6 +395,98 @@ class DemandesDepenseWidget(QDialog):
             # Actions
             action_widget = self.create_action_widget(demande)
             self.table.setCellWidget(i, 4, action_widget)
+
+            # Alternance des couleurs de ligne
+            if i % 2 == 0:
+                for j in range(self.table.columnCount()):
+                    if self.table.item(i, j):
+                        self.table.item(i, j).setBackground(QColor("#f8f9fa"))
+
+    def update_pagination(self):
+        # Clear existing page buttons
+        for i in reversed(range(self.page_buttons_layout.count())):
+            widget = self.page_buttons_layout.itemAt(i).widget()
+            if widget is not None:
+                widget.deleteLater()
+
+        total_pages = math.ceil(len(self.filtered_demandes) / self.items_per_page) or 1
+
+        # Always show first page button
+        self.add_page_button(1)
+
+        # Show ellipsis if needed
+        if self.current_page > 3:
+            ellipsis = QLabel("...")
+            ellipsis.setStyleSheet("color: #7f8c8d;")
+            self.page_buttons_layout.addWidget(ellipsis)
+
+        # Show current page and neighbors
+        start_page = max(2, self.current_page - 1)
+        end_page = min(total_pages - 1, self.current_page + 1)
+
+        for page in range(start_page, end_page + 1):
+            self.add_page_button(page)
+
+        # Show ellipsis if needed
+        if self.current_page < total_pages - 2:
+            ellipsis = QLabel("...")
+            ellipsis.setStyleSheet("color: #7f8c8d;")
+            self.page_buttons_layout.addWidget(ellipsis)
+
+        # Always show last page button if there's more than one page
+        if total_pages > 1:
+            self.add_page_button(total_pages)
+
+        # Update page info label
+        start_item = (self.current_page - 1) * self.items_per_page + 1
+        end_item = min(self.current_page * self.items_per_page, len(self.filtered_demandes))
+        total_items = len(self.filtered_demandes)
+        self.page_info_label.setText(f"Affichage de {start_item}-{end_item} sur {total_items}")
+
+        # Enable/disable navigation buttons
+        self.prev_btn.setEnabled(self.current_page > 1)
+        self.next_btn.setEnabled(self.current_page < total_pages)
+
+    def add_page_button(self, page):
+        btn = QPushButton(str(page))
+        btn.setCheckable(True)
+        btn.setChecked(page == self.current_page)
+        btn.setStyleSheet("""
+            QPushButton {
+                background-color: %s;
+                color: %s;
+                border: none;
+                padding: 5px 10px;
+                border-radius: 3px;
+                min-width: 30px;
+            }
+            QPushButton:hover {
+                background-color: #95a5a6;
+                color: white;
+            }
+            QPushButton:checked {
+                background-color: #3498db;
+                color: white;
+            }
+        """ % ("#ecf0f1" if page != self.current_page else "#3498db",
+              "#2c3e50" if page != self.current_page else "white"))
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.clicked.connect(lambda: self.go_to_page(page))
+        self.page_buttons_layout.addWidget(btn)
+
+    def go_to_page(self, page):
+        self.current_page = page
+        self.update_table()
+        self.update_pagination()
+
+    def go_to_previous_page(self):
+        if self.current_page > 1:
+            self.go_to_page(self.current_page - 1)
+
+    def go_to_next_page(self):
+        total_pages = math.ceil(len(self.filtered_demandes) / self.items_per_page)
+        if self.current_page < total_pages:
+            self.go_to_page(self.current_page + 1)
 
     def create_action_widget(self, demande):
         action_widget = QWidget()

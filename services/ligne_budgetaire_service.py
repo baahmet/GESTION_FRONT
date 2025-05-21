@@ -34,3 +34,22 @@ def create_ligne_budgetaire(data, budget_disponible=None):
     except Exception as e:
         return {"success": False, "message": str(e)}
 
+
+
+def update_ligne_budgetaire(ligne_id, data):
+    try:
+        response = requests.put(f"{BASE_URL}{ligne_id}/", json=data, headers=AuthService.get_headers())
+        if response.status_code == 200:
+            return {"success": True}
+        return {"success": False, "message": response.text}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+def delete_ligne_budgetaire(ligne_id):
+    try:
+        response = requests.delete(f"{BASE_URL}{ligne_id}/", headers=AuthService.get_headers())
+        if response.status_code in (200, 204):
+            return {"success": True}
+        return {"success": False, "message": response.text}
+    except Exception as e:
+        return {"success": False, "message": str(e)}

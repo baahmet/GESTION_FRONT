@@ -1,25 +1,33 @@
-from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QLabel, QPushButton, QTableWidget,
-                             QTableWidgetItem, QHBoxLayout, QMessageBox, QLineEdit, QFormLayout,
-                             QHeaderView, QGraphicsDropShadowEffect)
+from PyQt5.QtWidgets import (
+    QDialog, QVBoxLayout, QLabel, QPushButton,
+    QTableWidget, QTableWidgetItem, QHBoxLayout, QMessageBox,
+    QHeaderView, QWidget, QGraphicsDropShadowEffect,
+    QLineEdit, QComboBox
+)
 from PyQt5.QtCore import Qt, QPropertyAnimation, QEasingCurve
-from PyQt5.QtGui import QColor, QFont
-from services.fournisseur_service import get_fournisseurs, create_fournisseur
+from PyQt5.QtGui import QColor, QBrush
+from services.fournisseur_service import (
+    get_fournisseurs, create_fournisseur,
+    delete_fournisseur, update_fournisseur
+)
+from ui.modules.fournisseur_form_dialog import FournisseurFormDialog
 import datetime
+import math
 
 
 class FournisseursWidget(QDialog):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Gestion des Fournisseurs")
-        self.resize(800, 500)
+        self.resize(1000, 600)  # Fenêtre redimensionnable
+        self.current_page = 1
+        self.items_per_page = 10
         self.setup_ui()
         self.load_fournisseurs()
-        self.setup_animations()
 
     def setup_ui(self):
-        # Style global
         self.setStyleSheet("""
-            QDialog {
+            QWidget {
                 background-color: #f5f7fa;
                 font-family: 'Segoe UI';
             }
@@ -36,9 +44,8 @@ class FournisseursWidget(QDialog):
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(15)
 
-        # En-tête
+        # Header
         header = QHBoxLayout()
-
         title = QLabel("GESTION DES FOURNISSEURS")
         title.setStyleSheet("""
             QLabel {
@@ -49,12 +56,101 @@ class FournisseursWidget(QDialog):
         """)
         header.addWidget(title)
         header.addStretch()
+
+        # Bouton Ajouter
+        add_btn = QPushButton("➕ Ajouter Fournisseur")
+        add_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #27ae60;
+                color: white;
+                padding: 8px 15px;
+                border-radius: 4px;
+                font-weight: 500;
+                font-size: 13px;
+            }
+            QPushButton:hover {
+                background-color: #2ecc71;
+            }
+        """)
+        add_btn.setCursor(Qt.PointingHandCursor)
+        add_btn.clicked.connect(self.open_add_form)
+        add_btn.setToolTip("Ajouter un nouveau fournisseur")
+        header.addWidget(add_btn)
         layout.addLayout(header)
 
-        # Tableau des fournisseurs
+        # Barre de filtres
+        filter_bar = QHBoxLayout()
+
+        # Filtre par type
+        self.type_filter = QComboBox()
+        self.type_filter.addItem("Tous les types", "tous")
+        self.type_filter.addItem("Matériel", "materiel")
+        self.type_filter.addItem("Service", "service")
+        self.type_filter.setStyleSheet("""
+            QComboBox {
+                padding: 5px;
+                border: 1px solid #bdc3c7;
+                border-radius: 3px;
+                background-color: white;
+                min-width: 150px;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 20px;
+            }
+        """)
+        self.type_filter.currentIndexChanged.connect(self.apply_filters)
+        filter_bar.addWidget(QLabel("Type:"))
+        filter_bar.addWidget(self.type_filter)
+
+        # Filtre de recherche
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Rechercher...")
+        self.search_input.setStyleSheet("""
+            QLineEdit {
+                padding: 5px;
+                border: 1px solid #bdc3c7;
+                border-radius: 3px;
+                background-color: white;
+                min-width: 200px;
+            }
+        """)
+        self.search_input.textChanged.connect(self.apply_filters)
+        filter_bar.addWidget(QLabel("Recherche:"))
+        filter_bar.addWidget(self.search_input)
+
+        filter_bar.addStretch()
+
+        # Sélecteur d'éléments par page
+        self.items_per_page_combo = QComboBox()
+        self.items_per_page_combo.addItems(["5", "10", "20", "50", "100"])
+        self.items_per_page_combo.setCurrentText("10")
+        self.items_per_page_combo.setStyleSheet("""
+            QComboBox {
+                padding: 5px;
+                border: 1px solid #bdc3c7;
+                border-radius: 3px;
+                background-color: white;
+                min-width: 80px;
+            }
+        """)
+        self.items_per_page_combo.currentTextChanged.connect(self.change_items_per_page)
+        filter_bar.addWidget(QLabel("Items par page:"))
+        filter_bar.addWidget(self.items_per_page_combo)
+
+        # Affichage du nombre de résultats
+        self.results_label = QLabel("0 fournisseurs")
+        self.results_label.setStyleSheet("color: #7f8c8d;")
+        filter_bar.addWidget(self.results_label)
+
+        layout.addLayout(filter_bar)
+
+        # Table
         self.table = QTableWidget()
-        self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["Nom", "Type", "Téléphone", "NINEA"])
+        self.table.setColumnCount(6)
+        self.table.setHorizontalHeaderLabels(
+            ["Nom", "Type", "Téléphone", "NINEA", "Email", "Actions"]
+        )
         self.table.setStyleSheet("""
             QTableWidget {
                 background-color: white;
@@ -82,12 +178,11 @@ class FournisseursWidget(QDialog):
 
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table.verticalHeader().setVisible(False)
-        self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
         self.table.setShowGrid(False)
 
-        # Effet d'ombre
+        # Ombre
         shadow = QGraphicsDropShadowEffect()
         shadow.setBlurRadius(15)
         shadow.setColor(QColor(0, 0, 0, 30))
@@ -96,148 +191,81 @@ class FournisseursWidget(QDialog):
 
         layout.addWidget(self.table)
 
-        # Formulaire d'ajout avec style amélioré
-        form_container = QVBoxLayout()
+        # Pagination
+        self.pagination_widget = QWidget()
+        pagination_layout = QHBoxLayout(self.pagination_widget)
+        pagination_layout.setContentsMargins(0, 10, 0, 10)
+        pagination_layout.setSpacing(5)
 
-        form_title = QLabel("Ajouter un nouveau fournisseur")
-        form_title.setStyleSheet("""
-            QLabel {
-                font-size: 16px;
-                font-weight: bold;
+        self.prev_btn = QPushButton("◀")
+        self.prev_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #bdc3c7;
                 color: #2c3e50;
-                margin-top: 10px;
-            }
-        """)
-        form_container.addWidget(form_title)
-
-        # Style commun pour les QLineEdit
-        line_edit_style = """
-            QLineEdit {
-                padding: 8px;
-                border: 1px solid #bdc3c7;
-                border-radius: 4px;
-                background-color: white;
-                font-size: 13px;
-            }
-            QLineEdit:focus {
-                border: 1px solid #3498db;
-            }
-        """
-
-        # Style pour les labels du formulaire
-        label_style = """
-            QLabel {
-                font-weight: 500;
-                color: #34495e;
-            }
-        """
-
-        # Disposition du formulaire en grid
-        form_layout = QFormLayout()
-        form_layout.setContentsMargins(10, 10, 10, 10)
-        form_layout.setSpacing(10)
-
-        self.nom_input = QLineEdit()
-        self.nom_input.setStyleSheet(line_edit_style)
-        self.nom_input.setPlaceholderText("Nom du fournisseur")
-
-        self.type_input = QLineEdit()
-        self.type_input.setStyleSheet(line_edit_style)
-        self.type_input.setPlaceholderText("Type de fournisseur")
-
-        self.tel_input = QLineEdit()
-        self.tel_input.setStyleSheet(line_edit_style)
-        self.tel_input.setPlaceholderText("Numéro de téléphone")
-
-        self.ninea_input = QLineEdit()
-        self.ninea_input.setStyleSheet(line_edit_style)
-        self.ninea_input.setPlaceholderText("Numéro NINEA")
-
-        # Ajout des champs au formulaire
-        nom_label = QLabel("Nom:")
-        nom_label.setStyleSheet(label_style)
-        form_layout.addRow(nom_label, self.nom_input)
-
-        type_label = QLabel("Type:")
-        type_label.setStyleSheet(label_style)
-        form_layout.addRow(type_label, self.type_input)
-
-        tel_label = QLabel("Téléphone:")
-        tel_label.setStyleSheet(label_style)
-        form_layout.addRow(tel_label, self.tel_input)
-
-        ninea_label = QLabel("NINEA:")
-        ninea_label.setStyleSheet(label_style)
-        form_layout.addRow(ninea_label, self.ninea_input)
-
-        form_container.addLayout(form_layout)
-
-        # Boutons d'action
-        buttons_layout = QHBoxLayout()
-        buttons_layout.setContentsMargins(0, 10, 0, 0)
-
-        # Bouton ajouter
-        self.ajouter_btn = QPushButton("➕ Ajouter Fournisseur")
-        self.ajouter_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #27ae60;
-                color: white;
-                padding: 10px 20px;
-                border-radius: 4px;
-                font-weight: 500;
-                font-size: 13px;
+                border: none;
+                padding: 5px 10px;
+                border-radius: 3px;
+                min-width: 30px;
+                font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #2ecc71;
+                background-color: #95a5a6;
             }
-            QPushButton:pressed {
-                background-color: #219653;
+            QPushButton:disabled {
+                background-color: #ecf0f1;
+                color: #95a5a6;
             }
         """)
-        self.ajouter_btn.setCursor(Qt.PointingHandCursor)
-        self.ajouter_btn.clicked.connect(self.ajouter_fournisseur)
-        self.ajouter_btn.setToolTip("Enregistrer ce nouveau fournisseur")
+        self.prev_btn.setCursor(Qt.PointingHandCursor)
+        self.prev_btn.clicked.connect(self.go_to_previous_page)
+        self.prev_btn.setToolTip("Page précédente")
+        pagination_layout.addWidget(self.prev_btn)
 
-        # Bouton effacer
-        self.clear_btn = QPushButton("🗑️ Effacer")
-        self.clear_btn.setStyleSheet("""
+        self.page_buttons_layout = QHBoxLayout()
+        self.page_buttons_layout.setSpacing(5)
+        pagination_layout.addLayout(self.page_buttons_layout)
+
+        self.next_btn = QPushButton("▶")
+        self.next_btn.setStyleSheet("""
             QPushButton {
-                background-color: #e74c3c;
-                color: white;
-                padding: 10px 20px;
-                border-radius: 4px;
-                font-weight: 500;
-                font-size: 13px;
+                background-color: #bdc3c7;
+                color: #2c3e50;
+                border: none;
+                padding: 5px 10px;
+                border-radius: 3px;
+                min-width: 30px;
+                font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #c0392b;
+                background-color: #95a5a6;
             }
-            QPushButton:pressed {
-                background-color: #922b21;
+            QPushButton:disabled {
+                background-color: #ecf0f1;
+                color: #95a5a6;
             }
         """)
-        self.clear_btn.setCursor(Qt.PointingHandCursor)
-        self.clear_btn.clicked.connect(self.clear_form)
-        self.clear_btn.setToolTip("Vider les champs du formulaire")
+        self.next_btn.setCursor(Qt.PointingHandCursor)
+        self.next_btn.clicked.connect(self.go_to_next_page)
+        self.next_btn.setToolTip("Page suivante")
+        pagination_layout.addWidget(self.next_btn)
 
-        buttons_layout.addWidget(self.ajouter_btn)
-        buttons_layout.addWidget(self.clear_btn)
-        buttons_layout.addStretch()
+        pagination_layout.addStretch()
 
-        form_container.addLayout(buttons_layout)
-        layout.addLayout(form_container)
+        self.page_info_label = QLabel()
+        self.page_info_label.setStyleSheet("color: #7f8c8d;")
+        pagination_layout.addWidget(self.page_info_label)
+
+        layout.addWidget(self.pagination_widget)
 
         # Barre de statut
         status_bar = QHBoxLayout()
-
-        # Date de dernière mise à jour
         self.update_label = QLabel(f"Dernière mise à jour: {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}")
         self.update_label.setStyleSheet("color: #7f8c8d; font-style: italic;")
         status_bar.addWidget(self.update_label)
 
         status_bar.addStretch()
 
-        # Bouton rafraîchir
+        # Bouton de rafraîchissement
         refresh_btn = QPushButton("🔄 Rafraîchir")
         refresh_btn.setStyleSheet("""
             QPushButton {
@@ -257,34 +285,270 @@ class FournisseursWidget(QDialog):
 
         layout.addLayout(status_bar)
 
+        self.setLayout(layout)
+
     def load_fournisseurs(self):
         result = get_fournisseurs()
         if result["success"]:
-            fournisseurs = result["data"]
-            self.table.setRowCount(len(fournisseurs))
-            for i, f in enumerate(fournisseurs):
-                self.table.setItem(i, 0, QTableWidgetItem(f["nom"]))
-                self.table.setItem(i, 1, QTableWidgetItem(f["type"]))
-                self.table.setItem(i, 2, QTableWidgetItem(f["telephone"]))
-                self.table.setItem(i, 3, QTableWidgetItem(f["ninea"]))
-
-            # Mettre à jour le compteur
-            self.update_label.setText(
-                f"Dernière mise à jour: {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')} • {len(fournisseurs)} fournisseur(s)")
+            self.all_fournisseurs = result["data"]
+            self.filtered_fournisseurs = self.all_fournisseurs
+            self.apply_filters()
         else:
-            self.show_error_message("Erreur", result["message"])
+            self.show_error("Erreur", result["message"])
 
-    def setup_animations(self):
-        # Animation d'apparition du tableau
-        self.anim = QPropertyAnimation(self.table, b"windowOpacity")
-        self.anim.setDuration(500)
-        self.anim.setStartValue(0)
-        self.anim.setEndValue(1)
-        self.anim.setEasingCurve(QEasingCurve.OutCubic)
-        self.anim.start()
+    def apply_filters(self):
+        type_filter = self.type_filter.currentData()
+        search_text = self.search_input.text().lower()
+
+        self.filtered_fournisseurs = []
+        for fournisseur in self.all_fournisseurs:
+            # Filtre par type
+            if type_filter != "tous" and fournisseur["type"].lower() != type_filter:
+                continue
+
+            # Filtre par texte de recherche
+            searchable_text = (
+                fournisseur["nom"].lower() +
+                fournisseur["type"].lower() +
+                fournisseur.get("telephone", "").lower() +
+                fournisseur.get("ninea", "").lower() +
+                fournisseur.get("email", "").lower()
+            )
+
+            if search_text and search_text not in searchable_text:
+                continue
+
+            self.filtered_fournisseurs.append(fournisseur)
+
+        self.current_page = 1  # Reset to first page when filters change
+        self.update_table()
+        self.update_pagination()
+        self.results_label.setText(f"{len(self.filtered_fournisseurs)} fournisseur(s) trouvé(s)")
+
+    def change_items_per_page(self, text):
+        self.items_per_page = int(text)
+        self.current_page = 1  # Reset to first page when items per page changes
+        self.update_table()
+        self.update_pagination()
+
+    def update_table(self):
+        start_index = (self.current_page - 1) * self.items_per_page
+        end_index = start_index + self.items_per_page
+        paginated_fournisseurs = self.filtered_fournisseurs[start_index:end_index]
+
+        self.table.setRowCount(len(paginated_fournisseurs))
+
+        for i, f in enumerate(paginated_fournisseurs):
+            # Nom
+            nom_item = QTableWidgetItem(f["nom"])
+            self.table.setItem(i, 0, nom_item)
+
+            # Type (avec couleur)
+            type_item = QTableWidgetItem(f["type"])
+            if f["type"].lower() == "materiel":
+                type_item.setForeground(QBrush(QColor("#3498db")))  # Bleu
+            else:
+                type_item.setForeground(QBrush(QColor("#9b59b6")))  # Violet
+            self.table.setItem(i, 1, type_item)
+
+            # Téléphone
+            phone_item = QTableWidgetItem(f.get("telephone", "N/A"))
+            self.table.setItem(i, 2, phone_item)
+
+            # NINEA
+            ninea_item = QTableWidgetItem(f.get("ninea", "N/A"))
+            self.table.setItem(i, 3, ninea_item)
+
+            # Email
+            email_item = QTableWidgetItem(f.get("email", "N/A"))
+            self.table.setItem(i, 4, email_item)
+
+            # Actions
+            action_widget = self.create_action_buttons(f)
+            self.table.setCellWidget(i, 5, action_widget)
+
+            # Alternance des couleurs de ligne
+            if i % 2 == 0:
+                for j in range(self.table.columnCount()):
+                    if self.table.item(i, j):
+                        self.table.item(i, j).setBackground(QColor("#f8f9fa"))
+
+    def update_pagination(self):
+        # Clear existing page buttons
+        for i in reversed(range(self.page_buttons_layout.count())):
+            widget = self.page_buttons_layout.itemAt(i).widget()
+            if widget is not None:
+                widget.deleteLater()
+
+        total_pages = math.ceil(len(self.filtered_fournisseurs) / self.items_per_page) or 1
+
+        # Always show first page button
+        self.add_page_button(1)
+
+        # Show ellipsis if needed
+        if self.current_page > 3:
+            ellipsis = QLabel("...")
+            ellipsis.setStyleSheet("color: #7f8c8d;")
+            self.page_buttons_layout.addWidget(ellipsis)
+
+        # Show current page and neighbors
+        start_page = max(2, self.current_page - 1)
+        end_page = min(total_pages - 1, self.current_page + 1)
+
+        for page in range(start_page, end_page + 1):
+            self.add_page_button(page)
+
+        # Show ellipsis if needed
+        if self.current_page < total_pages - 2:
+            ellipsis = QLabel("...")
+            ellipsis.setStyleSheet("color: #7f8c8d;")
+            self.page_buttons_layout.addWidget(ellipsis)
+
+        # Always show last page button if there's more than one page
+        if total_pages > 1:
+            self.add_page_button(total_pages)
+
+        # Update page info label
+        start_item = (self.current_page - 1) * self.items_per_page + 1
+        end_item = min(self.current_page * self.items_per_page, len(self.filtered_fournisseurs))
+        total_items = len(self.filtered_fournisseurs)
+        self.page_info_label.setText(f"Affichage de {start_item}-{end_item} sur {total_items}")
+
+        # Enable/disable navigation buttons
+        self.prev_btn.setEnabled(self.current_page > 1)
+        self.next_btn.setEnabled(self.current_page < total_pages)
+
+    def add_page_button(self, page):
+        btn = QPushButton(str(page))
+        btn.setCheckable(True)
+        btn.setChecked(page == self.current_page)
+        btn.setStyleSheet("""
+            QPushButton {
+                background-color: %s;
+                color: %s;
+                border: none;
+                padding: 5px 10px;
+                border-radius: 3px;
+                min-width: 30px;
+            }
+            QPushButton:hover {
+                background-color: #95a5a6;
+                color: white;
+            }
+            QPushButton:checked {
+                background-color: #3498db;
+                color: white;
+            }
+        """ % ("#ecf0f1" if page != self.current_page else "#3498db",
+              "#2c3e50" if page != self.current_page else "white"))
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.clicked.connect(lambda: self.go_to_page(page))
+        self.page_buttons_layout.addWidget(btn)
+
+    def go_to_page(self, page):
+        self.current_page = page
+        self.update_table()
+        self.update_pagination()
+
+    def go_to_previous_page(self):
+        if self.current_page > 1:
+            self.go_to_page(self.current_page - 1)
+
+    def go_to_next_page(self):
+        total_pages = math.ceil(len(self.filtered_fournisseurs) / self.items_per_page)
+        if self.current_page < total_pages:
+            self.go_to_page(self.current_page + 1)
+
+    def create_action_buttons(self, fournisseur):
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(5)
+
+        # Modifier
+        edit_btn = QPushButton("✏️ Modifier")
+        edit_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                padding: 5px 10px;
+                border-radius: 3px;
+                font-size: 12px;
+                min-width: 80px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+        """)
+        edit_btn.setCursor(Qt.PointingHandCursor)
+        edit_btn.setToolTip("Modifier ce fournisseur")
+        edit_btn.clicked.connect(lambda: self.open_edit_form(fournisseur))
+        layout.addWidget(edit_btn)
+
+        # Supprimer
+        delete_btn = QPushButton("🗑 Supprimer")
+        delete_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #e74c3c;
+                color: white;
+                padding: 5px 10px;
+                border-radius: 3px;
+                font-size: 12px;
+                min-width: 80px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #c0392b;
+            }
+        """)
+        delete_btn.setCursor(Qt.PointingHandCursor)
+        delete_btn.setToolTip("Supprimer ce fournisseur")
+        delete_btn.clicked.connect(lambda: self.delete_fournisseur(fournisseur))
+        layout.addWidget(delete_btn)
+
+        return widget
+
+    def open_add_form(self):
+        dialog = FournisseurFormDialog(self)
+        dialog.setStyleSheet("""
+            QDialog {
+                background-color: #f5f7fa;
+            }
+        """)
+        if dialog.exec_():
+            self.load_fournisseurs()
+            self.show_success("Succès", "Le fournisseur a été créé avec succès!")
+
+    def open_edit_form(self, fournisseur):
+        dialog = FournisseurFormDialog(self, fournisseur=fournisseur)
+        dialog.setStyleSheet("""
+            QDialog {
+                background-color: #f5f7fa;
+            }
+        """)
+        if dialog.exec_():
+            self.load_fournisseurs()
+            self.show_success("Succès", "Le fournisseur a été modifié avec succès!")
+
+    def delete_fournisseur(self, fournisseur):
+        confirm = QMessageBox.question(
+            self,
+            "Confirmer la suppression",
+            f"Supprimer le fournisseur {fournisseur['nom']} ?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if confirm == QMessageBox.Yes:
+            result = delete_fournisseur(fournisseur["id"])
+            if result["success"]:
+                self.load_fournisseurs()
+                self.show_success("Succès", "Le fournisseur a été supprimé avec succès!")
+            else:
+                self.show_error("Erreur", result["message"])
 
     def refresh_data(self):
         self.load_fournisseurs()
+        self.update_label.setText(f"Dernière mise à jour: {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}")
 
         # Animation de rafraîchissement
         anim = QPropertyAnimation(self.table, b"windowOpacity")
@@ -294,37 +558,7 @@ class FournisseursWidget(QDialog):
         anim.setEasingCurve(QEasingCurve.OutCubic)
         anim.start()
 
-    def clear_form(self):
-        self.nom_input.clear()
-        self.type_input.clear()
-        self.tel_input.clear()
-        self.ninea_input.clear()
-
-    def ajouter_fournisseur(self):
-        # Validation basique
-        if not self.nom_input.text() or not self.type_input.text():
-            self.show_error_message("Champs requis", "Le nom et le type de fournisseur sont obligatoires.")
-            return
-
-        data = {
-            "nom": self.nom_input.text(),
-            "type": self.type_input.text(),
-            "telephone": self.tel_input.text(),
-            "ninea": self.ninea_input.text(),
-            "email": "contact@fournisseur.sn",  # Placeholder
-            "adresse": "Adresse fictive",  # Placeholder
-            "numero_rc": "RC12345"  # Placeholder
-        }
-
-        result = create_fournisseur(data)
-        if result["success"]:
-            self.show_success_message("Succès", "Le fournisseur a été ajouté avec succès!")
-            self.clear_form()
-            self.refresh_data()
-        else:
-            self.show_error_message("Erreur", result["message"])
-
-    def show_error_message(self, title, message):
+    def show_error(self, title, message):
         msg = QMessageBox(self)
         msg.setIcon(QMessageBox.Critical)
         msg.setWindowTitle(title)
@@ -351,7 +585,7 @@ class FournisseursWidget(QDialog):
         """)
         msg.exec_()
 
-    def show_success_message(self, title, message):
+    def show_success(self, title, message):
         msg = QMessageBox(self)
         msg.setIcon(QMessageBox.Information)
         msg.setWindowTitle(title)
