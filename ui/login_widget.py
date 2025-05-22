@@ -200,30 +200,7 @@ class LoginWidget(QWidget):
         separator.setFrameShadow(QFrame.Sunken)
         separator.setStyleSheet("background-color: #e0e0e0;")
 
-        # Option d'inscription
-        signup_layout = QHBoxLayout()
-        signup_label = QLabel("Vous n'avez pas de compte ?")
-        signup_label.setStyleSheet("color: #666666;")
 
-        signup_button = QPushButton("Créer un compte")
-        signup_button.setCursor(Qt.PointingHandCursor)
-        signup_button.setStyleSheet("""
-            QPushButton {
-                background-color: transparent;
-                border: none;
-                color: #0078d7;
-                font-weight: bold;
-                padding: 0;
-            }
-            QPushButton:hover {
-                color: #005fa3;
-                text-decoration: underline;
-            }
-        """)
-
-        signup_layout.addWidget(signup_label)
-        signup_layout.addWidget(signup_button)
-        signup_layout.addStretch()
 
         # Assemblage du formulaire
         form_layout.addWidget(email_label)
@@ -236,7 +213,7 @@ class LoginWidget(QWidget):
         form_layout.addItem(QSpacerItem(20, 30, QSizePolicy.Minimum, QSizePolicy.Fixed))
         form_layout.addWidget(separator)
         form_layout.addItem(QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Fixed))
-        form_layout.addLayout(signup_layout)
+
 
         # Ajouter le formulaire au layout droit
         right_layout.addWidget(login_title)

@@ -61,6 +61,10 @@ class AuthService:
         return cls.user_data.get("nom", "Utilisateur")
 
     @classmethod
+    def get_user_email(cls):
+        return cls.user_data.get("email", "Utilisateur")
+
+    @classmethod
     def logout(cls):
         cls.user_data = {}
         cls.token = None

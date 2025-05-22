@@ -102,8 +102,8 @@ class Code2FAWidget(QWidget):
         title.setFont(QFont("Arial", 22, QFont.Bold))
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet("color: #333333;")
-
-        subtitle = QLabel(f"Nous avons envoyé un code à {AuthService.temp_email}")
+        user_email = AuthService.get_user_email()
+        subtitle = QLabel(f"Nous avons envoyé un code à {user_email.capitalize()}")
         subtitle.setFont(QFont("Arial", 12))
         subtitle.setAlignment(Qt.AlignCenter)
         subtitle.setStyleSheet("color: #666666; margin-bottom: 10px;")

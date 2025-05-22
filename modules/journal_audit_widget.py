@@ -264,6 +264,7 @@ class JournalAuditWidget(QWidget):
 
         # Information sur le rôle utilisateur
         user_role = AuthService.get_user_role()
+
         role_label = QLabel(f"Rôle actuel: {user_role.capitalize()}")
         role_label.setStyleSheet("""
             color: #34495e;
